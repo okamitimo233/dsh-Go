@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
+import 'frame_budget.dart';
+
 /// Opt-in diagnostics only. Neither collection nor reporting requests frames.
 const _enabled = !kReleaseMode && bool.fromEnvironment('DSH_FRAME_PROBE');
 
@@ -12,6 +14,8 @@ const _enabled = !kReleaseMode && bool.fromEnvironment('DSH_FRAME_PROBE');
 const frameProbeEnabled = _enabled;
 const _requestedSampleEvery = int.fromEnvironment('DSH_FRAME_PROBE_SAMPLE_EVERY', defaultValue: 60);
 const _sampleEvery = _requestedSampleEvery > 0 ? _requestedSampleEvery : 60;
+const _requestedBudgetUs = int.fromEnvironment('DSH_FRAME_PROBE_BUDGET_US', defaultValue: 16667);
+const _frameBudgetUs = _requestedBudgetUs > 0 ? _requestedBudgetUs : 16667;
 
 /// Android's logcat cuts a line at about 4 KB, so a report goes out as lines
 /// under this many bytes (UTF-8, prefix included).
@@ -54,9 +58,7 @@ Future<void> runWithFrameProbe(Future<void> Function() startApp) {
   return runZoned<Future<void>>(
     () {
       final binding = _ProbeBinding(probe);
-      binding.addTimingsCallback((timings) {
-        probe.count('timingDelivered', timings.length);
-      });
+      binding.addTimingsCallback(probe.addTimings);
       // Deliberately outside the measured zone: one reporter wakeup per 5 s.
       reportingZone.run(() {
         Timer.periodic(const Duration(seconds: 5), (_) => probe.report(binding));
@@ -252,6 +254,7 @@ class _Probe {
   final _Source overflow = _Source('other/source-cap-128', false);
   final Map<String, int> totals = {};
   final Map<int, Map<String, int>> seconds = {};
+  final FrameBudgetWindow frameBudget = FrameBudgetWindow(budgetMicros: _frameBudgetUs);
   int callbackCalls = 0, requestCalls = 0, forcedCalls = 0;
   int lastReportUs = 0;
   int reports = 0;
@@ -316,6 +319,11 @@ class _Probe {
     return sources[key] = _Source(site, ticker, generator);
   }
 
+  void addTimings(List<FrameTiming> timings) {
+    count('timingDelivered', timings.length);
+    frameBudget.addAll(timings);
+  }
+
   void count(String name, [int value = 1]) {
     totals.update(name, (count) => count + value, ifAbsent: () => value);
     final second = clock.elapsedMilliseconds ~/ 1000;
@@ -348,6 +356,7 @@ class _Probe {
   void report(_ProbeBinding binding) {
     final nowUs = clock.elapsedMicroseconds;
     final second = nowUs ~/ 1000000;
+    final frames = frameBudget.snapshot();
     final all = [...sources.values, overflow];
     for (final source in all) {
       source.pending = 0;
@@ -363,6 +372,14 @@ class _Probe {
       'elapsedMs': nowUs ~/ 1000,
       'windowMs': (nowUs - lastReportUs) ~/ 1000,
       'sampleEvery': _sampleEvery,
+      'buildMode': kProfileMode
+          ? 'profile'
+          : kDebugMode
+          ? 'debug'
+          : 'release',
+      'surface': _surfaceJson(binding),
+      'frameBudget': frames.toJson(),
+      'drawnFps': frames.frameCount / (((nowUs - lastReportUs) / Duration.microsecondsPerSecond).clamp(0.001, 3600)),
       'counts': Map<String, int>.of(totals),
       'seconds': [
         for (var s = second - 5; s < second; s++)
@@ -414,4 +431,21 @@ class _Probe {
     }
     lastReportUs = nowUs;
   }
+}
+
+Map<String, Object?> _surfaceJson(WidgetsBinding binding) {
+  final view = binding.platformDispatcher.implicitView;
+  if (view == null) return const {'available': false};
+  final size = view.physicalSize;
+  final dpr = view.devicePixelRatio;
+  final logical = dpr > 0 ? size / dpr : Size.zero;
+  return {
+    'available': true,
+    'physicalWidth': size.width,
+    'physicalHeight': size.height,
+    'dpr': dpr,
+    'logicalWidth': logical.width,
+    'logicalHeight': logical.height,
+    'displayRefreshRate': view.display.refreshRate,
+  };
 }
