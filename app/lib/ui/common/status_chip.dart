@@ -61,7 +61,7 @@ class _AnimatedStatusDotState extends State<AnimatedStatusDot> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
+    final dot = FadeTransition(
       opacity: _opacity,
       child: TweenAnimationBuilder<Color?>(
         tween: ColorTween(end: StatusDot.colorFor(context, widget.tone)),
@@ -73,6 +73,7 @@ class _AnimatedStatusDotState extends State<AnimatedStatusDot> with SingleTicker
         ),
       ),
     );
+    return widget.tone == StatusTone.busy && !AppMotion.reduced(context) ? RepaintBoundary(child: dot) : dot;
   }
 }
 

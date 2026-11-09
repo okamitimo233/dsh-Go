@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../common/empty_view.dart';
 import '../common/expand_reveal.dart';
 import '../shell/page_frame.dart';
@@ -624,7 +625,7 @@ class WebKeyboard {
 
 class _WebViewPageState extends State<WebViewPage> {
   late WebViewController _controller;
-  late final AppLifecycleListener _lifecycle;
+  AppLifecycleListener? _lifecycle;
   late final WebViewGuard _guard = WebViewGuard(onGone: _onRendererGone);
   final _files = WebFileChooser();
   int _progress = 0;
@@ -651,11 +652,14 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _dark = false;
   int _textZoom = 100;
 
+  bool get _usesSystemBrowser => !AppPlatform.supportsEmbeddedWebView;
+
   @override
   void initState() {
     super.initState();
     widget.link?._attach(this);
     unawaited(WebKeyboard.restore());
+    if (_usesSystemBrowser) return;
     _open();
     _lifecycle = AppLifecycleListener(onHide: _onHide, onShow: _onShow);
   }
@@ -904,6 +908,7 @@ class _WebViewPageState extends State<WebViewPage> {
   /// The page colour behind the page, its light or dark, its text size: the
   /// app's.
   void _syncLook() {
+    if (_usesSystemBrowser) return;
     final brightness = Theme.of(context).brightness;
     final dark = brightness == Brightness.dark;
     final zoom = MediaQuery.textScalerOf(context).scale(100).round().clamp(50, 300);
@@ -991,7 +996,7 @@ class _WebViewPageState extends State<WebViewPage> {
     _keyboardRest?.cancel();
     _files.dispose();
     _guard.dispose();
-    _lifecycle.dispose();
+    _lifecycle?.dispose();
     super.dispose();
   }
 
@@ -1031,6 +1036,7 @@ class _WebViewPageState extends State<WebViewPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_usesSystemBrowser) return _SystemBrowserPage(url: widget.url, title: widget.title, subtitle: widget.subtitle);
     final theme = Theme.of(context);
     final bg = _background(theme.brightness);
     final media = MediaQuery.of(context);
@@ -1517,4 +1523,54 @@ class DshWebState {
   }
 
   final String? sessionId;
+}
+
+/// Linux and Windows have no webview_flutter implementation. Keep the page
+/// useful by handing the URL to the system browser instead of constructing a
+/// platform view that cannot exist.
+class _SystemBrowserPage extends StatelessWidget {
+  const _SystemBrowserPage({required this.url, required this.title, this.subtitle});
+
+  final Uri url;
+  final String title;
+  final String? subtitle;
+
+  Future<void> _open() => launchUrl(url, mode: LaunchMode.externalApplication);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.open_in_browser, size: 56, color: theme.colorScheme.primary),
+                const SizedBox(height: 20),
+                Text(title, textAlign: TextAlign.center, style: theme.textTheme.headlineSmall),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 8),
+                  Text(subtitle!, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+                ],
+                const SizedBox(height: 20),
+                SelectableText(url.toString(), textAlign: TextAlign.center, style: theme.textTheme.bodySmall),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: _open,
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Open in browser'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

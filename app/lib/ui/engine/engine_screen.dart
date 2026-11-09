@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../runtime/runtime_bridge.dart';
 import '../../runtime/runtime_state.dart';
 import '../../runtime/local_footprint.dart';
@@ -127,7 +128,7 @@ class EngineScreen extends ConsumerWidget {
                 child: EngineActions(phase: status.phase),
               ),
             const EngineFailureCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 16)),
-            const SafeModeCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 16)),
+            if (AppPlatform.isAndroid) const SafeModeCard(padding: EdgeInsets.fromLTRB(16, 0, 16, 16)),
             SettingsSection(
               title: l10n.hubEngineStartup,
               children: [
@@ -136,8 +137,10 @@ class EngineScreen extends ConsumerWidget {
                   value: settings.autoStartLocal,
                   onChanged: (v) => unawaited(ref.read(settingsProvider.notifier).setAutoStartLocal(v)),
                 ),
-                const SafeModeAutoSwitch(icon: null),
-                const SafeModeSettingsTiles(showAutoSwitch: false, icon: false),
+                if (AppPlatform.isAndroid) ...[
+                  const SafeModeAutoSwitch(icon: null),
+                  const SafeModeSettingsTiles(showAutoSwitch: false, icon: false),
+                ],
               ],
             ),
             if (!missing)
@@ -153,11 +156,12 @@ class EngineScreen extends ConsumerWidget {
             SettingsSection(
               title: l10n.commonMore,
               children: [
-                SettingsTile(
-                  spot: SettingsIndex.entry(SettingsPageId.background),
-                  subtitle: l10n.phoneEngineKeepAliveHint,
-                  onTap: () => _push(context, const BackgroundGuidePage()),
-                ),
+                if (AppPlatform.supportsAndroidBackgroundGuide)
+                  SettingsTile(
+                    spot: SettingsIndex.entry(SettingsPageId.background),
+                    subtitle: l10n.phoneEngineKeepAliveHint,
+                    onTap: () => _push(context, const BackgroundGuidePage()),
+                  ),
                 SettingsTile(
                   spot: SettingsIndex.entry(SettingsPageId.diagnostics),
                   subtitle: l10n.phoneEngineDiagnosticsHint,
@@ -177,7 +181,7 @@ class EngineScreen extends ConsumerWidget {
               ],
             ),
             // A way around a broken index, next to the other ways out of trouble.
-            if (!missing) const WorkspaceRecoverySettings(),
+            if (!missing && AppPlatform.isAndroid) const WorkspaceRecoverySettings(),
             if (!missing)
               SettingsSection(
                 children: [

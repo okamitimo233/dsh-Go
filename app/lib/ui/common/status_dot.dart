@@ -88,7 +88,7 @@ class _StatusDotState extends State<StatusDot> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
+    final dot = FadeTransition(
       opacity: _opacity,
       child: Container(
         width: widget.size,
@@ -96,5 +96,9 @@ class _StatusDotState extends State<StatusDot> with SingleTickerProviderStateMix
         decoration: BoxDecoration(color: StatusDot.colorFor(context, widget.tone), shape: BoxShape.circle),
       ),
     );
+    // A breathing dot is the only thing changing in its part of the header or
+    // drawer row; isolate its layer so the surrounding static text keeps its
+    // cached painting. A stopped dot does not need another layer.
+    return widget.tone == StatusTone.busy && !AppMotion.reduced(context) ? RepaintBoundary(child: dot) : dot;
   }
 }

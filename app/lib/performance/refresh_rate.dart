@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../platform/app_platform.dart';
 import 'performance_policy.dart';
 
 /// Tells the platform when the app wants the screen's fastest refresh rate.
@@ -33,12 +34,21 @@ class RefreshRateService {
   bool _started = false;
   Timer? _idle;
 
+  /// The refresh-rate channel belongs to Android. Desktops follow the
+  /// compositor's refresh rate, so registering a frame callback and invoking a
+  /// missing method channel there only adds work to every drawn frame.
+  @visibleForTesting
+  static bool? debugPlatformSupported;
+
   RefreshRateMode get mode => _mode;
+
+  static bool get _supported => debugPlatformSupported ?? AppPlatform.isAndroid;
 
   /// Registers the frame listener and sends the initial mode. Safe to call twice.
   void start() {
     if (_started) return;
     _started = true;
+    if (!_supported) return;
     // Widget tests have no platform side and must not leave timers behind; the mode is
     // still sent so a test can assert the channel traffic.
     if (!_testing) WidgetsBinding.instance.addPersistentFrameCallback(_onFrame);
@@ -49,7 +59,7 @@ class RefreshRateService {
 
   /// Called by the settings row and by the stored preference after launch.
   Future<void> setMode(RefreshRateMode mode) async {
-    if (_mode == mode) return;
+    if (!_supported || _mode == mode) return;
     _mode = mode;
     _idle?.cancel();
     if (mode != RefreshRateMode.auto) _active = false;
@@ -76,6 +86,7 @@ class RefreshRateService {
   void _sendActive(bool active) => _send('setFrameActive', {'active': active});
 
   void _send(String method, Map<String, Object?> arguments) {
+    if (!_supported) return;
     unawaited(channel.invokeMethod<void>(method, arguments).catchError((Object _) {}));
   }
 
@@ -87,5 +98,6 @@ class RefreshRateService {
     _mode = RefreshRateMode.auto;
     _active = false;
     _started = false;
+    debugPlatformSupported = null;
   }
 }

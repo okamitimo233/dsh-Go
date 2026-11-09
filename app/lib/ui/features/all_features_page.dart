@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../state/bots_state.dart';
 import '../../state/sessions_state.dart';
 import '../common/app_sheet.dart' show groupTitleStyle;
@@ -70,7 +71,18 @@ class AllFeaturesPage extends ConsumerWidget {
       }
     }
 
-    final List<FeatureSection> all = sections ?? ref.watch(featureSectionsProvider);
+    final List<FeatureSection> source = sections ?? ref.watch(featureSectionsProvider);
+    final List<FeatureSection> all = AppPlatform.isDesktop
+        ? [
+            for (final section in source)
+              if ([
+                    for (final item in section.items)
+                      if (item.availableOnCurrentPlatform) item,
+                  ]
+                  case final items when items.isNotEmpty)
+                FeatureSection.localized((l10n) => section.titleIn(l10n), items, note: section.note, id: section.id),
+          ]
+        : source;
     final page = AppPage.list(
       title: l10n.catalogAllFeatures,
       subtitle: Text(l10n.catalogAllFeaturesSubtitle),

@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../plugins/native/native_icons.dart';
 import '../../plugins/native/native_state.dart';
 import '../../plugins/seams/seams.dart';
@@ -120,6 +121,13 @@ class FeatureItem {
   bool get hasNative => native != null || action != null;
 
   bool get webOnly => !hasNative;
+
+  /// Entries that depend on Android-only integrations or an embedded WebView.
+  /// Linux/Windows keep the catalog useful by omitting them.
+  bool get availableOnCurrentPlatform => switch (id) {
+    'phone' || 'voice-input' || 'web' => !AppPlatform.isDesktop,
+    _ => true,
+  };
 
   /// [web] aimed at [sessionId] when it belongs to a conversation.
   DshWebTarget? webFor(String? sessionId) => webInSession && sessionId != null ? web?.inSession(sessionId) : web;
