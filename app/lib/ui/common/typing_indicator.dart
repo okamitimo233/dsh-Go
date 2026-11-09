@@ -50,7 +50,7 @@ class _TypingIndicatorState extends State<TypingIndicator> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     final color = widget.color ?? Theme.of(context).colorScheme.primary;
-    return AnimatedBuilder(
+    final dots = AnimatedBuilder(
       animation: _controller,
       builder: (context, _) => Row(
         mainAxisSize: MainAxisSize.min,
@@ -74,5 +74,6 @@ class _TypingIndicatorState extends State<TypingIndicator> with SingleTickerProv
         ],
       ),
     );
+    return AppMotion.reduced(context) ? dots : RepaintBoundary(child: dots);
   }
 }

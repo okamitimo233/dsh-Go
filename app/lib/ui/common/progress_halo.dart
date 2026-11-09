@@ -89,20 +89,23 @@ class _ProgressHaloState extends State<ProgressHalo> with TickerProviderStateMix
           tween: Tween<double>(end: widget.value?.clamp(0.0, 1.0) ?? 0),
           duration: AppMotion.of(context, AppMotion.slow),
           curve: AppMotion.std,
-          builder: (context, animatedValue, child) => AnimatedBuilder(
-            animation: Listenable.merge([_breath, _spin]),
-            builder: (context, _) => CustomPaint(
-              painter: _HaloPainter(
-                value: widget.value == null ? null : animatedValue,
-                spin: _spin.value,
-                breath: Curves.easeInOut.transform(_breath.value),
-                color: color,
-                glowAlpha: isDark ? 0.16 : 0.20,
-                strokeWidth: widget.strokeWidth,
+          builder: (context, animatedValue, child) {
+            final halo = AnimatedBuilder(
+              animation: Listenable.merge([_breath, _spin]),
+              builder: (context, _) => CustomPaint(
+                painter: _HaloPainter(
+                  value: widget.value == null ? null : animatedValue,
+                  spin: _spin.value,
+                  breath: Curves.easeInOut.transform(_breath.value),
+                  color: color,
+                  glowAlpha: isDark ? 0.16 : 0.20,
+                  strokeWidth: widget.strokeWidth,
+                ),
+                child: child,
               ),
-              child: child,
-            ),
-          ),
+            );
+            return AppMotion.reduced(context) ? halo : RepaintBoundary(child: halo);
+          },
           child: Center(child: widget.child),
         ),
       ),
