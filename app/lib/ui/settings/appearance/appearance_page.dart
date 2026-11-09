@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/l10n.dart';
+import '../../../platform/app_platform.dart';
 import '../../../state/appearance_state.dart';
 import '../../../state/settings_state.dart';
 import '../../common/expand_reveal.dart';
@@ -92,18 +93,20 @@ class AppearancePage extends ConsumerWidget {
           title: l10n.pluginsFeatureIcons,
           children: [SpotAnchor(spot: Spots.tileStyle, child: const TileStylePicker())],
         ),
-        SettingsSection(
-          title: l10n.pluginsAppIcon,
-          children: [
-            SpotAnchor(spot: Spots.appIcon, child: const AppIconPicker()),
-            const IconShortcutTile(),
-          ],
-        ),
-        SettingsSection(
-          title: l10n.launchScreenTitle,
-          footer: Text(l10n.launchFooter),
-          children: [SpotAnchor(spot: Spots.launchScreen, child: const LaunchScreenSection())],
-        ),
+        if (AppPlatform.supportsLauncherIcons)
+          SettingsSection(
+            title: l10n.pluginsAppIcon,
+            children: [
+              SpotAnchor(spot: Spots.appIcon, child: const AppIconPicker()),
+              const IconShortcutTile(),
+            ],
+          ),
+        if (AppPlatform.isAndroid)
+          SettingsSection(
+            title: l10n.launchScreenTitle,
+            footer: Text(l10n.launchFooter),
+            children: [SpotAnchor(spot: Spots.launchScreen, child: const LaunchScreenSection())],
+          ),
         SettingsSection(
           title: l10n.wallpaperTitle,
           footer: Text(l10n.wallpaperFooter),

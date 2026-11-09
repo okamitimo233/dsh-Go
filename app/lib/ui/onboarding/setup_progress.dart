@@ -147,7 +147,10 @@ final installEtaProvider = NotifierProvider<InstallEtaController, Duration?>(Ins
 String? installMetaLine(L10n l10n, RuntimeProgressEvent? progress, Duration? eta) {
   if (progress == null) return null;
   String mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(0);
-  final size = progress.total > 0 ? '${mb(progress.done)} / ${mb(progress.total)} MB' : null;
+  // Android's unpack reports bytes; desktop's npm install reports steps.
+  final size = progress.step == 'extract' && progress.total > 0
+      ? '${mb(progress.done)} / ${mb(progress.total)} MB'
+      : null;
   final String? remaining;
   if (eta == null) {
     remaining = null;

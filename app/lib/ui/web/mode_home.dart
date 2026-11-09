@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../state/sessions_state.dart';
 import '../../state/ui_mode_state.dart';
 import '../shell/home_shell.dart';
@@ -80,6 +81,7 @@ class WebModeKey extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!AppPlatform.supportsEmbeddedWebView) return const SizedBox.shrink();
     return GlassIconButton(
       icon: AppIcons.swap,
       tooltip: context.l10n.webSwitchToWeb,
