@@ -62,4 +62,23 @@ void main() {
         .toList();
     expect(modes, ['auto', 'max']);
   });
+
+  test('a platform without dsh/app is a no-op', () async {
+    final calls = <MethodCall>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(RefreshRateService.channel, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(RefreshRateService.channel, null));
+
+    RefreshRateService.debugPlatformSupported = false;
+    final service = RefreshRateService.instance;
+    service.start();
+    await service.setMode(RefreshRateMode.max);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(calls, isEmpty);
+    expect(service.mode, RefreshRateMode.auto);
+  });
 }

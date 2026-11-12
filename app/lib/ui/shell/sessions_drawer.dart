@@ -767,28 +767,29 @@ class _SkeletonListState extends State<_SkeletonList> with SingleTickerProviderS
       decoration: ShapeDecoration(color: fill, shape: const StadiumBorder()),
     );
     const widths = [0.72, 0.5, 0.64, 0.42, 0.58];
+    final skeleton = FadeTransition(
+      opacity: _opacity,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final row = constraints.maxWidth - 40;
+          return ListView(
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+            children: [
+              Padding(padding: const EdgeInsets.only(top: 19, bottom: 9), child: bar(28, 8)),
+              for (final w in widths)
+                SizedBox(
+                  height: 44,
+                  child: Align(alignment: Alignment.centerLeft, child: bar(row * w, 10)),
+                ),
+            ],
+          );
+        },
+      ),
+    );
     return Semantics(
       label: l10n.shellLoadingChats,
-      child: FadeTransition(
-        opacity: _opacity,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final row = constraints.maxWidth - 40;
-            return ListView(
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-              children: [
-                Padding(padding: const EdgeInsets.only(top: 19, bottom: 9), child: bar(28, 8)),
-                for (final w in widths)
-                  SizedBox(
-                    height: 44,
-                    child: Align(alignment: Alignment.centerLeft, child: bar(row * w, 10)),
-                  ),
-              ],
-            );
-          },
-        ),
-      ),
+      child: AppMotion.reduced(context) ? skeleton : RepaintBoundary(child: skeleton),
     );
   }
 }

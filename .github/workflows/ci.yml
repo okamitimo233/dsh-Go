@@ -273,6 +273,25 @@ jobs:
           bash runtime/tests/run-guard-tests.sh "$DSH_PREFIX"
           bash runtime/tests/run-native-tests.sh "$DSH_PREFIX"
 
+  linux-desktop:
+    name: Linux desktop
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - *checkout
+      - *flutter
+      - name: GTK and build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build linux --release
+
   android:
     name: Android JVM
     needs: changes
@@ -303,7 +322,7 @@ jobs:
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, checks, flutter, dart, runtime, android]
+    needs: [changes, checks, flutter, dart, runtime, android, linux-desktop]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

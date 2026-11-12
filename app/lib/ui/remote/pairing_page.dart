@@ -16,6 +16,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../remote/relay/relay_backend.dart';
 import '../../state/account_state.dart';
 import '../../state/hosts_state.dart';
@@ -594,10 +595,7 @@ class _CameraScanner extends StatefulWidget {
 }
 
 class _CameraScannerState extends State<_CameraScanner> {
-  final _controller = MobileScannerController(
-    formats: const [BarcodeFormat.qrCode],
-    detectionSpeed: DetectionSpeed.noDuplicates,
-  );
+  MobileScannerController? _controller;
   bool _reported = false;
   late final Future<void> _initialization;
 
@@ -609,11 +607,18 @@ class _CameraScannerState extends State<_CameraScanner> {
     _initialization = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
         ? const MethodChannel('dsh/app').invokeMethod<void>('initializePairingScanner')
         : Future<void>.value();
+    if (AppPlatform.supportsCameraScanner) {
+      _controller = MobileScannerController(
+        formats: const [BarcodeFormat.qrCode],
+        detectionSpeed: DetectionSpeed.noDuplicates,
+      );
+    }
   }
 
   @override
   void dispose() {
-    unawaited(_controller.dispose());
+    final controller = _controller;
+    if (controller != null) unawaited(controller.dispose());
     super.dispose();
   }
 
@@ -623,7 +628,7 @@ class _CameraScannerState extends State<_CameraScanner> {
       final text = code.rawValue;
       if (text == null || text.isEmpty) continue;
       _reported = true;
-      unawaited(_controller.stop());
+      unawaited(_controller?.stop());
       widget.onCode(text);
       return;
     }
@@ -633,6 +638,11 @@ class _CameraScannerState extends State<_CameraScanner> {
   Future<void> _fromImage() async {
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.maybeOf(context);
+    final controller = _controller;
+    if (controller == null) {
+      messenger?.showSnackBar(SnackBar(content: Text(l10n.remotePairImageNoCode)));
+      return;
+    }
     final XFile? picked;
     try {
       picked = await ImagePicker().pickImage(source: ImageSource.gallery, requestFullMetadata: false);
@@ -645,7 +655,7 @@ class _CameraScannerState extends State<_CameraScanner> {
     try {
       await _initialization;
       if (!mounted) return;
-      capture = await _controller.analyzeImage(picked.path, formats: const [BarcodeFormat.qrCode]);
+      capture = await controller.analyzeImage(picked.path, formats: const [BarcodeFormat.qrCode]);
     } catch (_) {
       if (mounted) messenger?.showSnackBar(SnackBar(content: Text(l10n.remotePairScannerFailed)));
       return;
@@ -661,6 +671,8 @@ class _CameraScannerState extends State<_CameraScanner> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final controller = _controller;
+    if (controller == null) return _CameraUnavailable(message: l10n.remotePairCameraFailed);
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -674,7 +686,7 @@ class _CameraScannerState extends State<_CameraScanner> {
               return const Center(child: CircularProgressIndicator());
             }
             return MobileScanner(
-              controller: _controller,
+              controller: controller,
               onDetect: _report,
               errorBuilder: (context, error) => _CameraUnavailable(
                 message: error.errorCode == MobileScannerErrorCode.permissionDenied

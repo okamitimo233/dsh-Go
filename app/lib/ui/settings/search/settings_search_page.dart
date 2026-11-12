@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../l10n/l10n.dart';
+import '../../../platform/app_platform.dart';
 import '../../../performance/performance_state.dart';
 import '../../../state/ask_ai.dart' show askAiAvailableProvider;
 import '../../../state/engine_settings_state.dart';
@@ -77,6 +78,22 @@ String? unavailableReason(WidgetRef ref, SpotCondition? condition, L10n l10n) {
     SpotCondition.engineField => true,
   };
   return met ? null : condition!.label(l10n);
+}
+
+bool _spotAvailableOnPlatform(SettingSpot spot) {
+  if (!AppPlatform.isDesktop) return true;
+  return switch (spot.page) {
+    SettingsPageId.phone ||
+    SettingsPageId.phoneAppRules ||
+    SettingsPageId.phoneDnd ||
+    SettingsPageId.phoneUnlocks ||
+    SettingsPageId.pets ||
+    SettingsPageId.notifications ||
+    SettingsPageId.voice ||
+    SettingsPageId.background ||
+    SettingsPageId.systemAccess => false,
+    _ => true,
+  };
 }
 
 class SettingsSearchPage extends ConsumerStatefulWidget {
@@ -156,15 +173,19 @@ class _SettingsSearchPageState extends ConsumerState<SettingsSearchPage> {
     final l10n = context.l10n;
     final query = _field.text;
     final extra = ref.watch(_pluginSpotsProvider);
+    final spots = [...SettingsIndex.spots, ...extra].where(_spotAvailableOnPlatform).toList();
+    final features = [
+      for (final section in ref.watch(featureSectionsProvider))
+        if ([
+              for (final item in section.items)
+                if (item.availableOnCurrentPlatform) item,
+            ]
+            case final items when items.isNotEmpty)
+          FeatureSection.localized((l10n) => section.titleIn(l10n), items, note: section.note, id: section.id),
+    ];
     final hits = query.trim().isEmpty
         ? const <SearchHit>[]
-        : searchSettings(
-            query,
-            spots: [...SettingsIndex.spots, ...extra],
-            features: ref.watch(featureSectionsProvider),
-            zh: _zh,
-            en: _en,
-          );
+        : searchSettings(query, spots: spots, features: features, zh: _zh, en: _en);
     final session = ref.watch(currentSessionProvider);
     return AppPage(
       title: l10n.searchSettingsHint,

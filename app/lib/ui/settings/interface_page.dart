@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../state/app_mode_state.dart';
 import '../../state/engine_settings_state.dart';
 import '../../state/quick_panel_state.dart';
@@ -67,27 +68,48 @@ class InterfacePage extends ConsumerWidget {
             ),
           ],
         ),
-        SettingsSection(
-          title: l10n.hubInterfaceHome,
-          spot: Spots.uiMode,
-          children: [
-            for (final m in UiMode.values)
-              Semantics(
-                checked: m == mode,
-                inMutuallyExclusiveGroup: true,
-                child: SettingsTile(
-                  key: ValueKey('ui-mode-${m.name}'),
-                  title: m.label,
-                  subtitle: m == UiMode.web ? l10n.hubInterfaceWebHint : null,
-                  trailing: SizedBox.square(
-                    dimension: 32,
-                    child: Icon(m == mode ? AppIcons.radioOn : AppIcons.radioOff, size: 24),
+        if (AppPlatform.isAndroid)
+          SettingsSection(
+            title: l10n.hubInterfaceHome,
+            spot: Spots.uiMode,
+            children: [
+              for (final m in UiMode.values)
+                Semantics(
+                  checked: m == mode,
+                  inMutuallyExclusiveGroup: true,
+                  child: SettingsTile(
+                    key: ValueKey('ui-mode-${m.name}'),
+                    title: m.label,
+                    subtitle: m == UiMode.web ? l10n.hubInterfaceWebHint : null,
+                    trailing: SizedBox.square(
+                      dimension: 32,
+                      child: Icon(m == mode ? AppIcons.radioOn : AppIcons.radioOff, size: 24),
+                    ),
+                    onTap: () => choose(context, ref, m),
                   ),
-                  onTap: () => choose(context, ref, m),
                 ),
+            ],
+          ),
+        if (AppPlatform.supportsEmbeddedWebView)
+          SettingsSection(
+            title: l10n.commonWeb,
+            spot: Spots.webApp,
+            children: [
+              SettingsTile(
+                spot: Spots.openWeb,
+                // In 网页模式 the web app is the home underneath.
+                onTap: () => mode == UiMode.web
+                    ? Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst)
+                    : Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const LocalWebScreen())),
               ),
-          ],
-        ),
+              SettingsSwitchTile(
+                spot: Spots.webPhoneLayout,
+                subtitle: l10n.hubSettingsWebPhoneLayoutHint,
+                value: settings.webPhoneLayout,
+                onChanged: (v) => unawaited(ref.read(settingsProvider.notifier).setWebPhoneLayout(v)),
+              ),
+            ],
+          ),
         SettingsSection(
           title: l10n.hubStartPage,
           children: [
@@ -96,25 +118,6 @@ class InterfacePage extends ConsumerWidget {
               subtitle: l10n.hubChatSuggestionsHint,
               value: settings.chatSuggestions,
               onChanged: (v) => unawaited(ref.read(settingsProvider.notifier).setChatSuggestions(v)),
-            ),
-          ],
-        ),
-        SettingsSection(
-          title: l10n.commonWeb,
-          spot: Spots.webApp,
-          children: [
-            SettingsTile(
-              spot: Spots.openWeb,
-              // In 网页模式 the web app is the home underneath.
-              onTap: () => mode == UiMode.web
-                  ? Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst)
-                  : Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const LocalWebScreen())),
-            ),
-            SettingsSwitchTile(
-              spot: Spots.webPhoneLayout,
-              subtitle: l10n.hubSettingsWebPhoneLayoutHint,
-              value: settings.webPhoneLayout,
-              onChanged: (v) => unawaited(ref.read(settingsProvider.notifier).setWebPhoneLayout(v)),
             ),
           ],
         ),

@@ -67,6 +67,9 @@ void main() {
     test('unknown or absent platform facts preserve the neutral profile', () {
       final policy = PerformanceDefaults.resolve(const PerformanceSnapshot(loaded: true), const PerformancePrefs());
       expect(policy.lightweight, isFalse);
+      expect(policy.blur, isTrue);
+      expect(policy.reduceMotion, isFalse);
+      expect(policy.fluidMotion, isTrue);
       expect(policy.autoStartLocal, isTrue);
       expect(
         PerformanceSnapshot.fromMap({

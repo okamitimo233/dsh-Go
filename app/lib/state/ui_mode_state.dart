@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/l10n.dart';
+import '../platform/app_platform.dart';
 import 'web_target.dart';
 import 'compose_inbox.dart';
 
@@ -56,12 +57,15 @@ class UiModeController extends Notifier<UiModeState> {
     } catch (_) {
       // No preferences backend (tests) or an unreadable store: native.
     }
+    // Desktop has no embedded DSH Web implementation; keep the native home.
+    if (AppPlatform.isDesktop) mode = UiMode.native;
     // A switch made while reading back wins over the stored value.
     if (!state.loaded) state = UiModeState(mode: mode, loaded: true);
   }
 
   /// Switches and remembers it for the next launch.
   Future<void> set(UiMode mode) async {
+    if (AppPlatform.isDesktop) mode = UiMode.native;
     state = UiModeState(mode: mode, loaded: true);
     try {
       final prefs = await SharedPreferences.getInstance();

@@ -3,11 +3,16 @@ import 'dart:collection';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../platform/app_platform.dart';
 import '../state/settings_state.dart';
 import '../state/read_list_epoch.dart';
+import 'desktop_runtime_bridge.dart';
 import 'runtime_bridge.dart';
 
-final runtimeBridgeProvider = Provider<RuntimeBridge>((ref) => RuntimeBridge());
+final runtimeBridgeProvider = Provider<RuntimeBridge>((ref) {
+  if (AppPlatform.isDesktop) return DesktopRuntimeBridge();
+  return RuntimeBridge();
+});
 
 /// [RuntimeBridge.batteryExempt]; invalidate to read it again.
 final batteryExemptProvider = FutureProvider<bool?>((ref) => ref.watch(runtimeBridgeProvider).batteryExempt());

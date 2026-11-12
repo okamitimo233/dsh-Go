@@ -1049,19 +1049,24 @@ class _ChatListState extends ConsumerState<ChatList> with SingleTickerProviderSt
     );
     return KeyedSubtree(
       key: ValueKey<String>(row.key),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: AppSpace.readingWidth),
-          // 撑满阅读宽度:否则短行(用户气泡、提示行)会被 Center 居中。
-          child: row is AssistantRow
-              // 等待和思考算过程行,正文不算:接上正文时间距缓缓让开,回复不跳。
-              ? AnimatedPadding(
-                  duration: row.key == _snapPaddingKey ? Duration.zero : AppMotion.of(context, AppMotion.quick),
-                  curve: AppMotion.std,
-                  padding: padding,
-                  child: SizedBox(width: double.infinity, child: body),
-                )
-              : Container(width: double.infinity, padding: padding, child: body),
+      // A streaming cursor or another row-local animation must not make the
+      // whole visible list repaint. Keep the sliver's required root key on
+      // KeyedSubtree so findChildIndexCallback still sees it.
+      child: RepaintBoundary(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: AppSpace.readingWidth),
+            // 撑满阅读宽度:否则短行(用户气泡、提示行)会被 Center 居中。
+            child: row is AssistantRow
+                // 等待和思考算过程行,正文不算:接上正文时间距缓缓让开,回复不跳。
+                ? AnimatedPadding(
+                    duration: row.key == _snapPaddingKey ? Duration.zero : AppMotion.of(context, AppMotion.quick),
+                    curve: AppMotion.std,
+                    padding: padding,
+                    child: SizedBox(width: double.infinity, child: body),
+                  )
+                : Container(width: double.infinity, padding: padding, child: body),
+          ),
         ),
       ),
     );

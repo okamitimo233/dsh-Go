@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../state/quick_panel_state.dart';
 import '../common/app_sheet.dart';
 import '../common/list_page_row.dart';
@@ -29,12 +30,18 @@ class QuickPanelItemsSheet extends ConsumerStatefulWidget {
 class _QuickPanelItemsSheetState extends ConsumerState<QuickPanelItemsSheet> {
   /// Every destination as the rows stand: what's stored first, in its order,
   /// then the rest. Only the ticked ones' order is stored.
+  bool _available(DrawerDestination destination) => !(AppPlatform.isDesktop && destination == DrawerDestination.web);
+
   late final List<DrawerDestination> _rows = [
-    ...ref.read(quickPanelProvider).items,
+    for (final d in ref.read(quickPanelProvider).items)
+      if (_available(d)) d,
     for (final d in DrawerDestination.values)
-      if (!ref.read(quickPanelProvider).items.contains(d)) d,
+      if (_available(d) && !ref.read(quickPanelProvider).items.contains(d)) d,
   ];
-  late final Set<DrawerDestination> _ticked = {...ref.read(quickPanelProvider).items};
+  late final Set<DrawerDestination> _ticked = {
+    for (final d in ref.read(quickPanelProvider).items)
+      if (_available(d)) d,
+  };
 
   void _save() => unawaited(ref.read(quickPanelProvider.notifier).setItems(_rows.where(_ticked.contains).toList()));
 

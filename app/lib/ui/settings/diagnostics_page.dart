@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../platform/app_platform.dart';
 import '../../diagnostics/diagnostics_publish.dart';
 import '../../diagnostics/redact.dart';
 import '../../diagnostics/system_ime_diagnostics.dart';
@@ -149,7 +150,7 @@ class DiagnosticsPage extends ConsumerWidget {
         // it, as groups do.
         const DiagnosticsBundleNote(),
         const SizedBox(height: 24),
-        const DirectEngineSettings(),
+        if (AppPlatform.isAndroid) const DirectEngineSettings(),
       ],
     );
   }
