@@ -226,7 +226,7 @@ void main() {
       SettingsPageId.pets,
       () => _app(tester, const PetSettingsPage(), _running()),
       // Once 「App 外显示」 is on.
-      absent: {'pet-display-when'},
+      absent: {'pet-display-when', 'pet-overlay-shows', 'pet-overlay-framing'},
     );
   });
 
@@ -258,7 +258,7 @@ void main() {
 
   testWidgets('手机操控', (tester) async {
     await _check(tester, SettingsPageId.phone, () async {
-      await pumpPhone(tester, const PhoneControlScreen(), size: const Size(390, 3200));
+      await pumpPhone(tester, const PhoneControlScreen(), size: const Size(390, 4400));
     });
   });
 

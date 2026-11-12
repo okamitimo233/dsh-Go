@@ -35,6 +35,7 @@ class PrivilegedCallsTest {
         val previewEntered = CountDownLatch(1)
         val releasePreview = CountDownLatch(1)
         val agentStarted = CountDownLatch(1)
+        val agentFinished = CountDownLatch(1)
         val executor = Executors.newFixedThreadPool(2)
         val agentDispatched = AtomicBoolean(false)
         try {
@@ -43,11 +44,14 @@ class PrivilegedCallsTest {
             }
             assertTrue(previewEntered.await(5, TimeUnit.SECONDS))
             val agent = executor.submit {
-                agentStarted.countDown()
-                calls.execute { agentDispatched.set(true) }
+                try {
+                    agentStarted.countDown()
+                    calls.execute { agentDispatched.set(true) }
+                } finally { agentFinished.countDown() }
             }
             assertTrue(agentStarted.await(5, TimeUnit.SECONDS))
-            agent.cancel(true)
+            assertTrue(agent.cancel(true))
+            assertTrue(agentFinished.await(5, TimeUnit.SECONDS))
             releasePreview.countDown()
             assertEquals("complete response", preview.get(5, TimeUnit.SECONDS))
             assertFalse(agentDispatched.get())
@@ -66,4 +70,38 @@ class PrivilegedCallsTest {
         } catch (_: IllegalStateException) { }
         assertEquals("agent", calls.execute { "agent" })
     }
+
+    @Test fun capacitySnapshotDoesNotWaitForAnAdmissionCallbackHoldingTheCallsLock() {
+        val calls = PrivilegedCalls(3)
+        val beforeSend = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val actual = executor.submit<String> {
+                calls.execute(beforeSend = {
+                    beforeSend.countDown()
+                    check(release.await(5, TimeUnit.SECONDS))
+                }) { "reply" }
+            }
+            assertTrue(beforeSend.await(5, TimeUnit.SECONDS))
+            // This reader represents the registry side of registry -> capacity. It must
+            // complete while the actual admission callback still owns Calls.lock.
+            assertTrue(executor.submit<Boolean> { calls.alive() }.get(1, TimeUnit.SECONDS))
+            release.countDown()
+            assertEquals("reply", actual.get(5, TimeUnit.SECONDS))
+            calls.retire()
+            assertFalse(calls.alive())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun successfulTerminalReplyPublishesRetirementToTheSameSnapshot() {
+        val calls = PrivilegedCalls(3)
+        assertEquals("closed", calls.execute(global = true, terminal = { it == "closed" }) { "closed" })
+        assertFalse(calls.alive())
+        assertNull(calls.tryPreview { "must not run" })
+    }
+
 }

@@ -164,6 +164,14 @@ class MainActivity : FlutterActivity() {
         appChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getTimeZoneId" -> result.success(TimeZone.getDefault().id)
+                "initializePairingScanner" -> {
+                    try {
+                        io.github.ccch1mneyyy.dsh_app.mlkit.MlKitRuntime.initialize(applicationContext)
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("scanner_initialization_failed", "The barcode scanner could not be initialized", null)
+                    }
+                }
                 // A browser sign-in finished (a Custom Tab on top of this task): clearing down
                 // to this activity closes the tab and shows the app again.
                 // 设置 → 性能 → 刷新率: auto | max | system, and whether Flutter is drawing.
@@ -201,14 +209,14 @@ class MainActivity : FlutterActivity() {
     // (Android 12's default for launcher roots): coming back finds it as it was.
     override fun popSystemNavigator(): Boolean = moveTaskToBack(true)
 
-    /** 设置 › 性能 › 刷新率; the Flutter side owns the stored choice. */
-    private var refreshMode = "auto"
-
     /** Flutter produced a frame recently (see RefreshRateService): auto mode follows it. */
     private var framesActive = true
 
     companion object {
         private const val ENGINE_ID = "dsh-main"
+
+        /** 设置 › 性能 › 刷新率; the Flutter side owns the stored choice. */
+        private var refreshMode = "auto"
 
         /** The app is on screen (resumed). */
         @Volatile var inForeground = false

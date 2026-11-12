@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/l10n.dart';
 import '../platform/app_platform.dart';
-import '../ui/web/web_target.dart';
+import 'web_target.dart';
 import 'compose_inbox.dart';
 
 /// 界面: the native interface or the official web one.
