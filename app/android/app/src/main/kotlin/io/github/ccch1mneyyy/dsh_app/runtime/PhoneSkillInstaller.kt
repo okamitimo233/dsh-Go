@@ -12,10 +12,23 @@ import java.nio.file.StandardOpenOption.CREATE_NEW
 import java.nio.file.StandardOpenOption.WRITE
 
 /** One explicit save of a rendered, immutable local draft. Never accepts Markdown from Flutter. */
-internal class PhoneSkillWrite(val document: PhoneSkillDraft.Ready) {
+internal class PhoneSkillWrite(val document: PhoneSkillDraft.Ready,
+    val bundle: PhoneSkillBundleInstaller.Document? = null) {
     enum class Phase { STAGING, COMMITTING, FINISHED, CANCELLED }
     private var phase = Phase.STAGING
     private var outcome: PhoneSkillInstallResult? = null
+    /** Small immutable receipt metadata; no Markdown or route bytes. */
+    data class SaveBinding(val identity: PhoneSkillBundleInstaller.Identity,
+        val origin: RuntimeController.PhoneSkillOrigin?,
+        val descriptors: Map<String, io.github.ccch1mneyyy.dsh_app.phone.skills.PhoneSkillRoute.Descriptor>)
+    private var binding = bundle?.let { SaveBinding(it.identity, null, it.descriptors) }
+    @Synchronized fun bindSaveOrigin(origin: RuntimeController.PhoneSkillOrigin): RuntimeController.PhoneSkillOrigin {
+        val current = binding ?: return origin // Phase1 has no bundle query.
+        current.origin?.let { return it } // Never borrow a later Runtime/root for this write.
+        binding = current.copy(origin = origin)
+        return origin
+    }
+    @Synchronized fun saveBinding(): SaveBinding? = binding
 
     @Synchronized fun canStage(): Boolean = phase == Phase.STAGING
     @Synchronized fun phase(): Phase = phase
@@ -47,13 +60,16 @@ internal sealed interface PhoneSkillInstallResult {
     data class Saved(val name: String) : PhoneSkillInstallResult {
         val relativePath: String get() = "skills/$name/SKILL.md"
     }
+    data class BundleSaved(val identity: PhoneSkillBundleInstaller.Identity) : PhoneSkillInstallResult
+    data class BundleUnverified(val identity: PhoneSkillBundleInstaller.Identity,
+        val publication: PhoneSkillBundleInstaller.Publication, val code: PhoneSkillBundleInstaller.Verification) : PhoneSkillInstallResult
     enum class Refused : PhoneSkillInstallResult { STALE, NO_HOME, CONFLICT, IO }
 }
 
 /**
  * A new user skill, on RuntimeController's rootfs worker. Never updates a managed/user directory.
- * The final directory is exclusively created; the finished SKILL.md is published with a hard
- * link, whose creation fails if that name already exists. ATOMIC_MOVE alone is not no-replace.
+ * The final directory is exclusively created; a same-directory move publishes the staged SKILL.md.
+ * Default move checks for an existing target; ATOMIC_MOVE would allow replacing it.
  * Root swaps share the worker; containment checks do not sandbox a hostile same-UID process
  * concurrently replacing parent directories (the same boundary as ManagedSkillInstaller).
  */
@@ -90,7 +106,7 @@ internal object PhoneSkillInstaller {
             }
             // Runtime generation and the explicit draft permission are checked together here.
             if (!beginCommit()) return PhoneSkillInstallResult.Refused.STALE
-            Files.createLink(directory.resolve("SKILL.md"), stage)
+            Files.move(stage, directory.resolve("SKILL.md"))
             published = true
             return PhoneSkillInstallResult.Saved(document.skillName)
         } catch (_: FileAlreadyExistsException) {

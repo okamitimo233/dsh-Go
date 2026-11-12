@@ -445,7 +445,7 @@ class HostAlertTracker {
     this.onReannounce,
     this.onRequestEpochChanged,
     this.onCompanionSignal,
-    this.companionConnection,
+    this._companionConnection,
     this.isCompanionAttached,
     this.announceDelay = const Duration(milliseconds: 800),
     this.reconcileDelay = const Duration(seconds: 3),
@@ -468,8 +468,18 @@ class HostAlertTracker {
   final void Function(ChatAlert alert)? onReannounce;
   final void Function(HostRef host)? onRequestEpochChanged;
   final void Function(CompanionAlertDelivery delivery)? onCompanionSignal;
-  final Object? companionConnection;
+  Object? _companionConnection;
+  Object? get companionConnection => _companionConnection;
   final bool Function()? isCompanionAttached;
+
+  /// The attachment owner may refresh display metadata for the same Host and
+  /// actual client. This does not replace [source] or any request/delivery
+  /// history. Existing receipts keep their old wrapper and retire immediately.
+  bool updateCompanionConnection({required Object previous, required Object next}) {
+    if (_disposed || !identical(_companionConnection, previous)) return false;
+    _companionConnection = next;
+    return true;
+  }
 
   /// Requests wait this long before alerting, so one that is answered at once
   /// (auto-approve on this or another device) never pops up.
@@ -727,6 +737,7 @@ class HostAlertTracker {
       );
       _requestAlerts[eventId] = alert;
       if (provenance != null) _publishRequest(eventId, agentId, root, kind, provenance, stillPending: current);
+      if (!current()) return;
       (reannounce ? onReannounce : onAlert)?.call(alert);
     }());
   }
@@ -748,10 +759,24 @@ class HostAlertTracker {
       return;
     }
     TurnOutcome? outcome;
-    try {
-      outcome = await source.lastTurn(sessionId);
-    } catch (_) {
-      // Host gone mid-read: nothing reliable to say.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (!current()) return;
+      try {
+        outcome = await source.lastTurn(sessionId).timeout(const Duration(seconds: 3));
+        break;
+      } catch (error) {
+        // Match the client's transient read failures, not permission/not-found
+        // refusals. Unresolved reads stay pending for the next ready snapshot.
+        final retryable =
+            error is TimeoutException ||
+            error is DshTransportException ||
+            error is DshCarrierLostException ||
+            error is DshProtocolException ||
+            error is DshHttpException && (error.statusCode >= 500 || error.statusCode == 408 || error.statusCode == 429) ||
+            error is DshRemoteException && (error.code == 'gateway/internal' || error.details['retryable'] == true);
+        if (!current() || !retryable || attempt == 1) return;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
     }
     // History and reconnect snapshots are asynchronous. A newer running edge
     // (even followed by another idle edge) invalidates this turn-end read.
@@ -776,6 +801,7 @@ class HostAlertTracker {
       signalFreshness: freshness,
     );
     if (provenance != null) _publishTerminal(alert, provenance);
+    if (!current()) return;
     onAlert(alert);
   }
 
@@ -899,9 +925,9 @@ class HostAlertTracker {
       return;
     }
     final delivery = CompanionAlertDelivery._(signal, provenance, actual.client, connection, () {
-      if (_disposed) return false;
+      if (_disposed || !identical(companionConnection, connection)) return false;
       final current = attached();
-      return current && !_disposed;
+      return current && !_disposed && identical(companionConnection, connection);
     }, stillPending);
     if (delivery.current) onCompanionSignal?.call(delivery);
   }
@@ -951,6 +977,6 @@ final class CompanionAlertDelivery {
         !gate.ingressCurrent(ingress)) {
       return CompanionSignalAdmission.stale;
     }
-    return gate.receive(ingress, signal, provenance: provenance, stillPending: _pending);
+    return gate.receive(ingress, signal, provenance: provenance, stillPending: _pending, receiptCurrent: () => current);
   }
 }

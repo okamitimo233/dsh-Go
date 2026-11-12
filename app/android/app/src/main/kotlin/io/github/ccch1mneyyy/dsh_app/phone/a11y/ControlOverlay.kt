@@ -7,6 +7,7 @@ package io.github.ccch1mneyyy.dsh_app.phone.a11y
 
 import io.github.ccch1mneyyy.dsh_app.i18n.AppStrings
 import io.github.ccch1mneyyy.dsh_app.R
+import io.github.ccch1mneyyy.dsh_app.phone.background.BackgroundPreview
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
@@ -36,6 +37,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
@@ -184,6 +186,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
             // over WindowManager work or enqueue a second, unguarded status runnable.
             // The pill's 暂停 / 停止 / 插话 are bound to this status's own task, captured inside its guard.
             if (!statusOwnership.publish(ifCurrent) { PhoneRegistry.controlListener?.shownControls() }) return@post
+            if (editing && statusOwnership.editingControls == null) endEditing()
             statusText = text
             paused = statusOwnership.controls?.isPaused() == true
             setStopped(false)
@@ -324,24 +327,50 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
     }
 
     /** Paired hides for full-display screenshots; captures may overlap. */
-    fun hideForCapture(hide: Boolean) {
+    fun hideForCapture(hide: Boolean) { captureHiddenResult(hide, false) }
+
+    /** Null means the UI hide did not finish normally. An empty set is a normal result.
+     * The IDs describe only this operation's invisible attached controls, not compositor pixels.
+     * The caller must still pair this with hideForCapture(false), including on interruption. */
+    internal fun hideForCaptureWithReceipt(): Set<Int>? = captureHiddenResult(true, true)
+
+    private fun captureHiddenResult(hide: Boolean, includeWindowIds: Boolean): Set<Int>? {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             // The main-thread pet caller schedules its own delay before it shoots.
             applyCaptureHidden(hide)
-            return
+            return if (includeWindowIds) hiddenWindowIds() else null
         }
         // Both halves run on the main queue in the order they were asked for and are never
         // cancelled: a release can't overtake its own hide, and recovery still runs if the
         // screenshot worker times out or is interrupted.
         val applied = CountDownLatch(1)
         var settle = false
+        var windowIds: Set<Int>? = null
         main.post {
-            try { settle = applyCaptureHidden(hide) }
-            catch (e: Exception) { Log.w(TAG, "overlay main-thread call failed", e) }
+            try {
+                settle = applyCaptureHidden(hide)
+                if (includeWindowIds) windowIds = hiddenWindowIds()
+            } catch (e: Exception) { Log.w(TAG, "overlay main-thread call failed", e) }
             finally { applied.countDown() }
         }
-        // Blocking agent captures wait for the windows to go; a busy main thread costs only the wait.
-        if (hide && applied.await(500, TimeUnit.MILLISECONDS) && settle) SystemClock.sleep(120)
+        if (!hide || !applied.await(500, TimeUnit.MILLISECONDS)) return null
+        if (settle) SystemClock.sleep(120)
+        return windowIds
+    }
+
+    @Suppress("DEPRECATION")
+    private fun hiddenWindowIds(): Set<Int> = buildSet {
+        for ((root, _) in windows()) {
+            val id = runCatching {
+                if (!root.isAttachedToWindow || root.visibility == View.VISIBLE) null
+                else {
+                    val node = root.createAccessibilityNodeInfo()
+                    if (node == null) null
+                    else try { node.windowId.takeIf { it >= 0 } } finally { node.recycle() }
+                }
+            }.getOrNull()
+            if (id != null) add(id)
+        }
     }
 
     private fun applyCaptureHidden(hide: Boolean): Boolean {
@@ -472,7 +501,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
         if (taskId == null || p == null || control == null) return
         previewTaskId = taskId
         previewPill = p
-        control.preview.addConsumer(previewOwner, taskId) { frame ->
+        control.preview.addConsumer(previewOwner, taskId, BackgroundPreview.ConsumerKind.OVERLAY) { frame ->
             if (destroying || previewTaskId != taskId || previewPill !== p) return@addConsumer
             when (frame["state"]) {
                 "frame" -> (frame["imageBytes"] as? ByteArray)?.let(previewDecoder::offer)
@@ -480,6 +509,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
                     previewDecoder.clear()
                     val label = when (frame["state"]) {
                         "off" -> null
+                        "inUse" -> s(R.string.overlay_preview_in_use)
                         "protected" -> s(R.string.overlay_preview_protected)
                         "waiting" -> s(R.string.overlay_preview_waiting)
                         else -> s(R.string.overlay_preview_unavailable)
@@ -675,29 +705,32 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
 
     private fun togglePause() {
         if (stoppedNote) return
-        val controls = statusOwnership.controls
-        paused = !(controls?.isPaused() ?: paused)
+        val controls = statusOwnership.controls ?: return
+        val next = !controls.isPaused()
+        if (!controls.setPaused(next)) {
+            announce(s(R.string.overlay_control_rejected))
+            return
+        }
+        paused = next
         renderPill()
-        controls?.setPaused(paused)
         announce(s(if (paused) R.string.overlay_paused_short else R.string.overlay_resume_description))
     }
 
-    /** 停止 on the capsule or the card, or the ball held: everything pending answers STOP. */
+    /** Stop only the displayed task; its native owner chain cancels its own prompt tickets. */
     private fun stopFromPill() {
         if (stoppedNote) return
-        sharedPrompt?.ticket?.stop()
-        pendingConfirm?.resolve(Decision.STOP)
-        pendingHandoff?.resolve(HandoffResult.STOP)
-        dismissConfirm()
-        dismissHandoff()
+        val controls = statusOwnership.controls ?: return
+        // l10n:keep agent stop reason
+        if (!controls.stop("你在悬浮条上点了停止")) {
+            announce(s(R.string.overlay_control_rejected))
+            return
+        }
         paused = false
         endEditing()
         setStopped(true)
         renderPill()
         clearStoppedLater()
         announce(s(R.string.overlay_stopped))
-        // l10n:keep agent stop reason
-        statusOwnership.controls?.stop("你在悬浮条上点了停止")
     }
 
     private fun announce(text: String) {
@@ -723,7 +756,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
     /** The steer field in the card: the window takes the keyboard until the text goes or is sent. */
     private fun startSteer() {
         val p = pill ?: return
-        if (stoppedNote || !fold.expanded || editing) return
+        if (stoppedNote || !fold.expanded || editing || !statusOwnership.beginEditing()) return
         editing = true
         holdFold(FoldClock.Hold.EDITING)
         p.params.flags = p.params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
@@ -733,7 +766,10 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
     }
 
     private fun endEditing() {
+        statusOwnership.endEditing()
         val p = pill
+        p?.input?.setText("")
+        p?.input?.error = null
         if (p != null && (editing || p.editing)) {
             ime.hideSoftInputFromWindow(p.input.windowToken, 0)
             p.stopEditing()
@@ -750,9 +786,15 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
         val p = pill ?: return
         val text = p.input.text?.toString()?.trim().orEmpty()
         if (text.isEmpty()) return
-        p.input.setText("")
+        val controls = statusOwnership.editingControls
+        if (controls == null || !controls.interject(text)) {
+            val failure = s(R.string.overlay_steer_rejected)
+            p.input.error = failure
+            announce(failure)
+            return
+        }
+        p.input.error = null
         endEditing()
-        statusOwnership.controls?.interject(text)
         val note = s(R.string.overlay_steer_sent, text)
         steerNote = note
         // Back to the capsule: the note shows where the line is.
@@ -773,6 +815,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
             addView(PhonePromptUi.card(service, p), FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         }
+        showWindow(root)
         val layout = params(top = false, keepScreenOn = true)
         place(root, layout, top = false)
         if (!p.live || !add(root, layout)) return null
@@ -887,6 +930,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
                 main.postDelayed(this, 1_000)
             }
         }
+        showWindow(root)
         val params = params(top = false, keepScreenOn = true)
         place(root, params, top = false)
         if (!add(root, params)) return false
@@ -964,6 +1008,7 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
                 main.postDelayed(this, 1_000)
             }
         }
+        showWindow(root)
         val params = params(top = true, keepScreenOn = true)
         place(root, params, top = true)
         if (!add(root, params)) return false
@@ -1301,10 +1346,40 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
 
     /** The confirm and handoff cards: nearly the screen's width, at the top or the bottom. */
     private fun place(root: View, params: WindowManager.LayoutParams, top: Boolean) {
-        val (screenW, insetTop, insetBottom) = metrics()
-        params.width = minOf(screenW - dp(12), dp(if (top) 492 else 472))
+        // Let the window manager lay the window out at the display's real width, then fix the card's
+        // own width from what it got. Sizing it from metrics() (WindowManager.getCurrentWindowMetrics)
+        // is what made this card 1192 px wide on a 1080 px screen: right after a cold start the
+        // service can still hold a configuration from before the display rotated (it reported
+        // 2207 × 1080 there), and the window manager's own layout cannot be that stale snapshot.
+        params.width = WindowManager.LayoutParams.MATCH_PARENT
+        fitCardWidth(root, params, if (top) CardMetrics.HANDOFF_DP else CardMetrics.CONFIRM_DP)
+        val (_, insetTop, insetBottom) = metrics()
         params.y = if (top) insetTop + dp(2) else insetBottom + dp(6)
         if (root.isAttachedToWindow) update(root, params)
+    }
+
+    /**
+     * Shrinks the card window from the display's width to [CardMetrics.windowWidthPx] once the
+     * layout knows how wide the display really is, before that frame is drawn. A second
+     * configuration change may already have fixed it; then this leaves the width alone.
+     */
+    private fun fitCardWidth(root: View, params: WindowManager.LayoutParams, capDp: Int) {
+        root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (params.width != WindowManager.LayoutParams.MATCH_PARENT) {
+                    root.viewTreeObserver.removeOnPreDrawListener(this)
+                    return true
+                }
+                val displayW = root.width
+                if (displayW <= 0) return true
+                root.viewTreeObserver.removeOnPreDrawListener(this)
+                params.width = CardMetrics.windowWidthPx(displayW, service.resources.displayMetrics.density, capDp)
+                // This update also schedules the next traversal: the false below cancels the draw,
+                // and without a fresh pass a hidden (screenshot) window would stay unsized.
+                update(root, params)
+                return false // nothing to see at the display's width: draw once it is the card's
+            }
+        })
     }
 
     private fun applyPassThrough(on: Boolean): Boolean {
@@ -1324,6 +1399,13 @@ internal class ControlOverlay(private val service: AccessibilityService) : UserG
         pill?.let { it.root to it.params }, ball?.let { it.root to it.params },
         confirmCard?.let { it.root to it.params }, handoffCard?.let { it.root to it.params },
     )
+
+    /** Main-thread identity check, including invisible roots during a display capture. */
+    internal fun ownsWindow(windowId: Int): Boolean = windowId >= 0 && windows().any { (root, _) ->
+        if (!root.isAttachedToWindow) return@any false
+        val node = root.createAccessibilityNodeInfo() ?: return@any false
+        try { node.windowId == windowId } finally { node.recycle() }
+    }
 
     private fun add(view: View, params: WindowManager.LayoutParams): Boolean = try {
         wm.addView(view, params); true
